@@ -39,6 +39,16 @@ class BaseLLMAdapter:
     """
     def invoke(self, prompt: str) -> str:
         raise NotImplementedError("Subclasses must implement .invoke(prompt) method.")
+    
+    def stream(self, prompt: str):
+        """
+        流式调用，返回生成器，每次 yield 一个 chunk
+        子类如不支持流式，可返回普通 invoke 的结果
+        """
+        # 默认实现：调用 invoke 并 yield 完整结果
+        result = self.invoke(prompt)
+        if result:
+            yield result
 
 class DeepSeekAdapter(BaseLLMAdapter):
     """
@@ -68,6 +78,12 @@ class DeepSeekAdapter(BaseLLMAdapter):
             return ""
         return response.content
 
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        for chunk in self._client.stream(prompt):
+            if chunk.content:
+                yield chunk.content
+
 class OpenAIAdapter(BaseLLMAdapter):
     """
     适配官方/OpenAI兼容接口（使用 langchain.ChatOpenAI）
@@ -95,6 +111,12 @@ class OpenAIAdapter(BaseLLMAdapter):
             logging.warning("No response from OpenAIAdapter.")
             return ""
         return response.content
+
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        for chunk in self._client.stream(prompt):
+            if chunk.content:
+                yield chunk.content
 
 class GeminiAdapter(BaseLLMAdapter):
     """
@@ -175,6 +197,12 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             return ""
         return response.content
 
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        for chunk in self._client.stream(prompt):
+            if chunk.content:
+                yield chunk.content
+
 class OllamaAdapter(BaseLLMAdapter):
     """
     Ollama 同样有一个 OpenAI-like /v1/chat 接口，可直接使用 ChatOpenAI。
@@ -205,6 +233,12 @@ class OllamaAdapter(BaseLLMAdapter):
             logging.warning("No response from OllamaAdapter.")
             return ""
         return response.content
+
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        for chunk in self._client.stream(prompt):
+            if chunk.content:
+                yield chunk.content
 
 class MLStudioAdapter(BaseLLMAdapter):
     def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
@@ -318,6 +352,24 @@ class VolcanoEngineAIAdapter(BaseLLMAdapter):
             logging.error(f"火山引擎API调用超时或失败: {e}")
             return ""
 
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "你是DeepSeek，是一个 AI 人工智能助手"},
+                    {"role": "user", "content": prompt},
+                ],
+                stream=True,
+                timeout=self.timeout
+            )
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            logging.error(f"火山引擎API流式调用失败: {e}")
+
 class SiliconFlowAdapter(BaseLLMAdapter):
     def __init__(self, api_key: str, base_url: str, model_name: str, max_tokens: int, temperature: float = 0.7, timeout: Optional[int] = 600):
         self.base_url = check_base_url(base_url)
@@ -349,6 +401,25 @@ class SiliconFlowAdapter(BaseLLMAdapter):
         except Exception as e:
             logging.error(f"硅基流动API调用超时或失败: {e}")
             return ""
+
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "你是DeepSeek，是一个 AI 人工智能助手"},
+                    {"role": "user", "content": prompt},
+                ],
+                stream=True,
+                timeout=self.timeout
+            )
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            logging.error(f"硅基流动API流式调用失败: {e}")
+
 # grok實現
 class GrokAdapter(BaseLLMAdapter):
     """
@@ -388,6 +459,26 @@ class GrokAdapter(BaseLLMAdapter):
         except Exception as e:
             logging.error(f"Grok API 调用失败: {e}")
             return ""
+
+    def stream(self, prompt: str):
+        """流式调用，返回生成器"""
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are Grok, created by xAI."},
+                    {"role": "user", "content": prompt},
+                ],
+                stream=True,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                timeout=self.timeout
+            )
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            logging.error(f"Grok API 流式调用失败: {e}")
 
 def create_llm_adapter(
     interface_format: str,
